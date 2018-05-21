@@ -61,7 +61,9 @@ import {
     ArrayContains,
     ArrayNotContains,
     ArrayUnique,
-    IsArray
+    IsArray,
+    IsDateString,
+    IsInstance
 } from "../../src/decorator/decorators";
 import {Validator} from "../../src/validation/Validator";
 import {ValidatorOptions} from "../../src/validation/ValidatorOptions";
@@ -450,12 +452,38 @@ describe("IsDate", function() {
 describe("IsNumber", function() {
 
     const validValues = [0, 1, 2, 3, 4, 5.4, -10];
-    const invalidValues = ["1", "0", true, false, "-100"];
+    const invalidValues = ["1", "0", true, false, "-100", "abc", undefined, null];
 
     class MyClass {
         @IsNumber()
         someProperty: number;
     }
+
+    class NaNTestClass {
+        @IsNumber({ allowNaN: true })
+        someProperty: number;
+    }
+
+    class InfinityTestClass {
+        @IsNumber({ allowInfinity: true })
+        someProperty: number;
+    }
+
+    it("should fail if NaN passed without allowing NaN values", function (done) {
+        checkInvalidValues(new MyClass(), [NaN], done);
+    });
+
+    it("should fail if Infinity passed without allowing NaN values", function (done) {
+        checkInvalidValues(new MyClass(), [Infinity, -Infinity], done);
+    });
+
+    it("should not fail if NaN passed and NaN as value is allowed", function (done) {
+        checkValidValues(new NaNTestClass(), [NaN], done);
+    });
+
+    it("should not fail if Infinity passed and Infinity as value is allowed", function (done) {
+        checkValidValues(new InfinityTestClass(), [Infinity, -Infinity], done);
+    });
 
     it("should not fail if validator.validate said that its valid", function(done) {
         checkValidValues(new MyClass(), validValues, done);
@@ -566,6 +594,56 @@ describe("IsString", function() {
 
 });
 
+describe("IsDateString", function() {
+
+    const validValues = [
+        "2017-06-06T17:04:42.081Z",
+        "2017-06-06T17:04:42.081",
+        "2018-01-04T08:15:30",
+        "2018-01-04T08:15:30Z",
+        "2018-01-04T08:15:30+04:00",
+        "2018-01-04T08:15:30+04",
+    ];
+    const invalidValues = [
+        true,
+        false,
+        1,
+        2,
+        null,
+        undefined,
+        "text"
+    ];
+
+    class MyClass {
+        @IsDateString()
+        someProperty: string;
+    }
+
+    it("should not fail if validator.validate said that its valid", function(done) {
+        checkValidValues(new MyClass(), validValues, done);
+    });
+
+    it("should fail if validator.validate said that its invalid", function(done) {
+        checkInvalidValues(new MyClass(), invalidValues, done);
+    });
+
+    it("should not fail if method in validator said that its valid", function() {
+        validValues.forEach(value => expect(validator.isDateString(value)).be.true);
+    });
+
+    it("should fail if method in validator said that its invalid", function() {
+        invalidValues.forEach(value => expect(validator.isDateString(value as any)).be.false);
+    });
+
+    it("should return error object with proper data", function(done) {
+        const validationType = "isDateString";
+        // const message = "someProperty deve ser um texto de data";
+        const message = "someProperty must be a ISOString";
+        checkReturnedError(new MyClass(), invalidValues, validationType, message, done);
+    });
+
+});
+
 describe("IsArray", function() {
 
     const validValues = [[], [1, 2, 3], [0, 0, 0], [""], [0], [undefined], [{}], new Array()];
@@ -615,7 +693,13 @@ describe("IsEnum", function() {
         Second  = 999
     }
 
+    enum MyStringEnum {
+        First   = <any>"first",
+        Second  = <any>"second"
+    }
+
     const validValues = [MyEnum.First, MyEnum.Second];
+    const validStringValues = [MyStringEnum.First, MyStringEnum.Second];
     const invalidValues = [
         true,
         false,
@@ -623,7 +707,7 @@ describe("IsEnum", function() {
         {},
         null,
         undefined,
-        "First"
+        "F2irst"
     ];
 
     class MyClass {
@@ -631,26 +715,53 @@ describe("IsEnum", function() {
         someProperty: MyEnum;
     }
 
+    class MyClass2 {
+        @IsEnum(MyStringEnum)
+        someProperty: MyStringEnum;
+    }
+
     it("should not fail if validator.validate said that its valid", function(done) {
         checkValidValues(new MyClass(), validValues, done);
+    });
+
+    it("should not fail if validator.validate said that its valid (string enum)", function(done) {
+        checkValidValues(new MyClass2(), validStringValues, done);
     });
 
     it("should fail if validator.validate said that its invalid", function(done) {
         checkInvalidValues(new MyClass(), invalidValues, done);
     });
 
+    it("should fail if validator.validate said that its invalid (string enum)", function(done) {
+        checkInvalidValues(new MyClass2(), invalidValues, done);
+    });
+
     it("should not fail if method in validator said that its valid", function() {
         validValues.forEach(value => validator.isEnum(value, MyEnum).should.be.true);
+    });
+
+    it("should not fail if method in validator said that its valid (string enum)", function() {
+        validStringValues.forEach(value => validator.isEnum(value, MyStringEnum).should.be.true);
     });
 
     it("should fail if method in validator said that its invalid", function() {
         invalidValues.forEach(value => validator.isEnum(value, MyEnum).should.be.false);
     });
 
+    it("should fail if method in validator said that its invalid (string enum)", function() {
+        invalidValues.forEach(value => validator.isEnum(value, MyStringEnum).should.be.false);
+    });
+
     it("should return error object with proper data", function(done) {
         const validationType = "isEnum";
         const message = "someProperty must be a valid enum value";
         checkReturnedError(new MyClass(), invalidValues, validationType, message, done);
+    });
+
+    it("should return error object with proper data (string enum)", function(done) {
+        const validationType = "isEnum";
+        const message = "someProperty must be a valid enum value";
+        checkReturnedError(new MyClass2(), invalidValues, validationType, message, done);
     });
 
 });
@@ -1049,7 +1160,7 @@ describe("IsNumberString", function() {
 // -------------------------------------------------------------------------
 
 describe("Contains", function() {
-    
+
     const constraint = "hello";
     const validValues = ["hello world"];
     const invalidValues = [null, undefined, "bye world"];
@@ -1084,7 +1195,7 @@ describe("Contains", function() {
 });
 
 describe("NotContains", function() {
-    
+
     const constraint = "hello";
     const validValues = ["bye world"];
     const invalidValues = [null, undefined, "hello world"];
@@ -1125,7 +1236,7 @@ describe("IsAlpha", function() {
     const invalidValues = [null, undefined, "hello1mynameisalex"];
 
     class MyClass {
-        @IsAlpha(constraint)
+        @IsAlpha()
         someProperty: string;
     }
 
@@ -1295,9 +1406,9 @@ describe("IsByteLength", function() {
 });
 
 describe("IsCreditCard", function() {
-    
+
     const validValues = [
-        "375556917985515", 
+        "375556917985515",
         "36050234196908",
         "4716461583322103",
         "4716-2210-5188-5662",
@@ -1336,7 +1447,7 @@ describe("IsCreditCard", function() {
 });
 
 describe("IsCurrency", function() {
-    
+
     const validValues = [
         "-$10,123.45"
         , "$10,123.45"
@@ -2237,7 +2348,6 @@ describe("IsUrl", function() {
         , "http://189.123.14.13/"
         , "http://duckduckgo.com/?q=%2F"
         , "http://foobar.com/t$-_.+!*\"(),"
-        , "http://localhost:3000/"
         , "http://foobar.com/?foo=bar#baz=qux"
         , "http://foobar.com?foo=bar"
         , "http://foobar.com#baz=qux"
@@ -2277,12 +2387,12 @@ describe("IsUrl", function() {
         , "http://www.foobar.com/\t"
         , "http://\n@www.foobar.com/"
         , ""
+        , "http://localhost:61500this is an invalid url!!!!"
         , "http://foobar.com/" + new Array(2083).join("f")
         , "http://*.foo.com"
         , "*.foo.com"
         , "!.foo.com"
         , "http://example.com."
-        , "http://localhost:61500this is an invalid url!!!!"
         , "////foobar.com"
         , "http:////foobar.com"
     ];
@@ -2306,6 +2416,14 @@ describe("IsUrl", function() {
 
     it("should fail if method in validator said that its invalid", function() {
         invalidValues.forEach(value => validator.isURL(value).should.be.false);
+    });
+
+    it("should fail on localhost without require_tld option", function () {
+        validator.isURL("http://localhost:3000/").should.be.false;
+    });
+
+    it("should pass on localhost with require_tld option", function () {
+        validator.isURL("http://localhost:3000/", { require_tld: false }).should.be.true;
     });
 
     it("should return error object with proper data", function(done) {
@@ -2514,7 +2632,7 @@ describe("IsUppercase", function() {
         , "   ."
     ];
     const invalidValues = [
-        null, 
+        null,
         undefined,
         "fooBar",
         "123abc"
@@ -2579,13 +2697,13 @@ describe("Length", function() {
 
     it("should return error object with proper data", function(done) {
         const validationType = "length";
-        const message = "someProperty must be longer than " + constraint1 + " characters";
+        const message = "someProperty must be longer than or equal to " + constraint1 + " characters";
         checkReturnedError(new MyClass(), ["", "a"], validationType, message, done);
     });
 
     it("should return error object with proper data", function(done) {
         const validationType = "length";
-        const message = "someProperty must be shorter than " + constraint2 + " characters";
+        const message = "someProperty must be shorter than or equal to " + constraint2 + " characters";
         checkReturnedError(new MyClass(), ["aaaa", "azzazza"], validationType, message, done);
     });
 
@@ -2620,7 +2738,7 @@ describe("MinLength", function() {
 
     it("should return error object with proper data", function(done) {
         const validationType = "minLength";
-        const message = "someProperty must be longer than " + constraint1 + " characters";
+        const message = "someProperty must be longer than or equal to " + constraint1 + " characters";
         checkReturnedError(new MyClass(), invalidValues, validationType, message, done);
     });
 
@@ -2655,7 +2773,7 @@ describe("MaxLength", function() {
 
     it("should return error object with proper data", function(done) {
         const validationType = "maxLength";
-        const message = "someProperty must be shorter than " + constraint1 + " characters";
+        const message = "someProperty must be shorter than or equal to " + constraint1 + " characters";
         checkReturnedError(new MyClass(), invalidValues, validationType, message, done);
     });
 
@@ -2895,10 +3013,10 @@ describe("ArrayMaxSize", function() {
         const message = "someProperty must contain not more than " + constraint + " elements";
         checkReturnedError(new MyClass(), invalidValues, validationType, message, done);
     });
-    
+
 });
 
-describe("ArrayUnique", function() {
+describe("ArrayUnique", function () {
 
     const validValues = [["world", "hello", "superman"], ["world", "superman", "hello"], ["superman", "world", "hello"]];
     const invalidValues: any[] = [null, undefined, ["world", "hello", "hello"], ["world", "hello", "world"], ["1", "1", "1"]];
@@ -2907,6 +3025,43 @@ describe("ArrayUnique", function() {
         @ArrayUnique()
         someProperty: string[];
     }
+
+    it("should not fail if validator.validate said that its valid", function (done) {
+        checkValidValues(new MyClass(), validValues, done);
+    });
+
+    it("should fail if validator.validate said that its invalid", function (done) {
+        checkInvalidValues(new MyClass(), invalidValues, done);
+    });
+
+    it("should not fail if method in validator said that its valid", function () {
+        validValues.forEach(value => validator.arrayUnique(value).should.be.true);
+    });
+
+    it("should fail if method in validator said that its invalid", function () {
+        invalidValues.forEach(value => validator.arrayUnique(value).should.be.false);
+    });
+
+    it("should return error object with proper data", function (done) {
+        const validationType = "arrayUnique";
+        const message = "All someProperty's elements must be unique";
+        checkReturnedError(new MyClass(), invalidValues, validationType, message, done);
+    });
+
+});
+
+describe("isInstance", function () {
+
+    class MySubClass { }
+    class WrongSubClass {}
+
+    class MyClass {
+        @IsInstance(MySubClass)
+        someProperty: MySubClass;
+    }
+
+    const validValues = [new MySubClass()];
+    const invalidValues = [null, undefined, 15, "something", new WrongSubClass(), () => <any>null];
 
     it("should not fail if validator.validate said that its valid", function(done) {
         checkValidValues(new MyClass(), validValues, done);
@@ -2917,16 +3072,16 @@ describe("ArrayUnique", function() {
     });
 
     it("should not fail if method in validator said that its valid", function() {
-        validValues.forEach(value => validator.arrayUnique(value).should.be.true);
+        validValues.forEach(value => validator.isInstance(value, MySubClass).should.be.true);
     });
 
     it("should fail if method in validator said that its invalid", function() {
-        invalidValues.forEach(value => validator.arrayUnique(value).should.be.false);
+        invalidValues.forEach(value => validator.isInstance(value, MySubClass).should.be.false);
     });
 
     it("should return error object with proper data", function(done) {
-        const validationType = "arrayUnique";
-        const message = "All someProperty's elements must be unique";
+        const validationType = "isInstance";
+        const message = "someProperty must be an instance of MySubClass";
         checkReturnedError(new MyClass(), invalidValues, validationType, message, done);
     });
 

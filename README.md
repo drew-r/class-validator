@@ -1,15 +1,39 @@
 # class-validator
 
-[![Build Status](https://travis-ci.org/pleerock/class-validator.svg?branch=master)](https://travis-ci.org/pleerock/class-validator)
-[![codecov](https://codecov.io/gh/pleerock/class-validator/branch/master/graph/badge.svg)](https://codecov.io/gh/pleerock/class-validator)
+[![Build Status](https://travis-ci.org/typestack/class-validator.svg?branch=master)](https://travis-ci.org/typestack/class-validator)
 [![npm version](https://badge.fury.io/js/class-validator.svg)](https://badge.fury.io/js/class-validator)
-[![Dependency Status](https://david-dm.org/pleerock/class-validator.svg)](https://david-dm.org/pleerock/class-validator)
-[![devDependency Status](https://david-dm.org/pleerock/class-validator/dev-status.svg)](https://david-dm.org/pleerock/class-validator#info=devDependencies)
-[![Join the chat at https://gitter.im/pleerock/class-validator](https://badges.gitter.im/pleerock/class-validator.svg)](https://gitter.im/pleerock/class-validator?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Join the chat at https://gitter.im/typestack/class-validator](https://badges.gitter.im/typestack/class-validator.svg)](https://gitter.im/typestack/class-validator?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 Allows use of decorator and non-decorator based validation.
 Internally uses [validator.js][1] to perform validation.
 Class-validator works on both browser and node.js platforms.
+
+## Table of Contents
+
+ * [Installation](#installation)
+     - [Old versions of node.js/browser](#old-versions-of-nodejsbrowser)
+     - [Using in browser](#using-in-browser)
+ * [Usage](#usage)
+    + [Validation errors](#validation-errors)
+    + [Validation messages](#validation-messages)
+    + [Validating arrays](#validating-arrays)
+    + [Validating nested objects](#validating-nested-objects)
+    + [Inheriting Validation decorators](#inheriting-validation-decorators)
+    + [Conditional validation](#conditional-validation)
+    + [Whitelisting](#whitelisting)
+    + [Skipping missing properties](#skipping-missing-properties)
+    + [Validation groups](#validation-groups)
+    + [Custom validation classes](#custom-validation-classes)
+    + [Custom validation decorators](#custom-validation-decorators)
+    + [Using service container](#using-service-container)
+    + [Synchronous validation](#synchronous-validation)
+    + [Manual validation](#manual-validation)
+    + [Validation decorators](#validation-decorators)
+    + [Defining validation schema without decorators](#defining-validation-schema-without-decorators)
+    + [Validating plain objects](#validating-plain-objects)
+ * [Samples](#samples)
+ * [Extensions](#extensions)
+ * [Release notes](#release-notes)
 
 ## Installation
 
@@ -36,15 +60,17 @@ If you are using class-validator with system.js in browser then use following co
 
 ```javascript
 System.config({
-    map: {
-        'class-validator': 'vendor/class-validator',
-        'validator': 'vendor/validator'
-    },
-    packages: {
-        'class-validator': { 'defaultExtension': 'js', 'main': 'index.js' },
-        'validator': { 'defaultExtension': 'js', 'main': 'validator.js' },
-    }
-};
+          map: {
+            'class-validator': 'vendor/class-validator',
+            'validator': 'vendor/validator',
+            'ansicolor': 'vendor/ansicolor',
+          },
+          packages: {
+            'class-validator': { 'defaultExtension': 'js', 'main': 'index.js' },
+            'validator': { 'defaultExtension': 'js', 'main': 'validator.js' },
+            'ansicolor': { 'defaultExtension': 'js', 'main': 'ansicolor.js' },
+          }
+        });
 ```
 
 ## Usage
@@ -94,6 +120,29 @@ validate(post).then(errors => { // errors is an array of validation errors
 });
 ```
 
+### Passing options
+
+The `validate` function optionally expects a `ValidatorOptions` object as a second parameter.
+
+```ts
+export interface ValidatorOptions {
+
+    skipMissingProperties?: boolean;
+    whitelist?: boolean;
+    forbidNonWhitelisted?: boolean;
+    groups?: string[];
+    dismissDefaultMessages?: boolean;
+    validationError?: {
+        target?: boolean;
+        value?: boolean;
+    };
+
+    forbidUnknownValues?: boolean;
+}
+```
+
+> It's highly advised to enable on `forbidUnknownValues` what prevent unknown objects to pass validation.
+
 ## Validation errors
 
 `validate` method returns you an array of `ValidationError` objects. Each `ValidationError` is:
@@ -118,7 +167,7 @@ In our case, when we validated a Post object, we have such array of ValidationEr
     property: "title",
     value: "Hello",
     constraints: {
-        length: "$property must be shorter than 10 characters"
+        length: "$property must be longer than or equal to 10 characters"
     }
 }, {
     target: /* post object */,
@@ -288,7 +337,7 @@ import {ValidateIf, IsNotEmpty} from "class-validator";
 
 export class Post {
     otherProperty:string;
-    
+
     @ValidateIf(o => o.otherProperty === "value")
     @IsNotEmpty()
     example:string;
@@ -298,6 +347,58 @@ export class Post {
 In the example above, the validation rules applied to `example` won't be run unless the object's `otherProperty` is `"value"`.
 
 Note that when the condition is false all validation decorators are ignored, including `isDefined`.
+
+## Whitelisting
+
+Even if your object is an instance of a validation class it can contain additional properties that are not defined.
+If you do not want to have such properties on your object, pass special flag to `validate` method:
+
+```typescript
+import {validate} from "class-validator";
+// ...
+validate(post, { whitelist: true });
+```
+
+This will strip all properties that don't have any decorators. If no other decorator is suitable for your property,
+you can use @Allow decorator:
+
+```typescript
+import {validate, Allow, Min} from "class-validator";
+
+export class Post {
+
+    @Allow()
+    title: string;
+
+    @Min(0)
+    views: number;
+
+    nonWhitelistedProperty: number;
+}
+
+let post = new Post();
+post.title = 'Hello world!';
+post.views = 420;
+
+post.nonWhitelistedProperty = 69;
+(post as any).anotherNonWhitelistedProperty = "something";
+
+validate(post).then(errors => {
+  // post.nonWhitelistedProperty is not defined
+  // (post as any).anotherNonWhitelistedProperty is not defined
+  ...
+});
+````
+
+If you would rather to have an error thrown when any non-whitelisted properties are present, pass another flag to
+`validate` method:
+
+```typescript
+import {validate} from "class-validator";
+// ...
+validate(post, { whitelist: true, forbidNonWhitelisted: true });
+```
+
 
 ## Skipping missing properties
 
@@ -355,7 +456,7 @@ validate(user, {
 
 validate(user, {
     groups: []
-}); // this will pass validation
+}); // this will not pass validation
 ```
 
 There is also a special flag `always: true` in validation options that you can use. This flag says that this validation
@@ -603,7 +704,7 @@ validator.isBoolean(value); // Checks if a given value is a real boolean.
 validator.isDate(value); // Checks if a given value is a real date.
 validator.isString(value); // Checks if a given value is a real string.
 validator.isArray(value); // Checks if a given value is an array.
-validator.isNumber(value); // Checks if a given value is a real number.
+validator.isNumber(value, options); // Checks if a given value is a real number.
 validator.isInt(value); // Checks if value is an integer.
 validator.isEnum(value, entity); // Checks if value is valid for a certain enum entity.
 
@@ -665,6 +766,9 @@ validator.arrayNotEmpty(array); // Checks if given array is not empty.
 validator.arrayMinSize(array, min); // Checks if array's length is at least `min` number.
 validator.arrayMaxSize(array, max); // Checks if array's length is as most `max` number.
 validator.arrayUnique(array); // Checks if all array's values are unique. Comparison for objects is reference-based.
+
+// object validation methods
+validator.isInstance(value, target); // Checks value is an instance of the target.
 ```
 
 ## Validation decorators
@@ -673,6 +777,7 @@ validator.arrayUnique(array); // Checks if all array's values are unique. Compar
 |-------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
 | **Common validation decorators**                                                                                                                                                   |
 | `@IsDefined(value: any)`                        | Checks if value is defined (!== undefined, !== null). This is the only decorator that ignores skipMissingProperties option.      |
+| `@IsOptional()`                                 | Checks if given value is empty (=== null, === undefined) and if so, ignores all the validators on the property.                         |
 | `@Equals(comparison: any)`                      | Checks if value equals ("===") comparison.                                                                                       |
 | `@NotEquals(comparison: any)`                   | Checks if value not equal ("!==") comparison.                                                                                    |
 | `@IsEmpty()`                                    | Checks if given value is empty (=== '', === null, === undefined).                                                                |
@@ -681,12 +786,12 @@ validator.arrayUnique(array); // Checks if all array's values are unique. Compar
 | `@IsNotIn(values: any[])`                       | Checks if value is not in a array of disallowed values.                                                                          |
 | **Type validation decorators**                                                                                                                                                     |
 | `@IsBoolean()`                                  | Checks if a value is a boolean.                                                                                                  |
-| `@IsDate()`                                     | Checks if the string is a date.                                                                                                  |
+| `@IsDate()`                                     | Checks if the value is a date.                                                                                                   |
 | `@IsString()`                                   | Checks if the string is a string.                                                                                                |
-| `@IsNumber()`                                   | Checks if the string is a number.                                                                                                |
+| `@IsNumber(options: IsNumberOptions)`           | Checks if the value is a number.                                                                                                 |
 | `@IsInt()`                                      | Checks if the value is an integer number.                                                                                        |
-| `@IsArray()`                                    | Checks if the string is an array                                                                                                 |
-| `@Enum(entity: object)`                         | Checks if the value is an valid enum                                                                                             |
+| `@IsArray()`                                    | Checks if the value is an array                                                                                                  |
+| `@IsEnum(entity: object)`                         | Checks if the value is an valid enum                                                                                           |
 | **Number validation decorators**                                                                                                                                                   |
 | `@IsDivisibleBy(num: number)`                   | Checks if the value is a number that's divisible by another.                                                                     |
 | `@IsPositive()`                                 | Checks if the value is a positive number.                                                                                        |
@@ -698,7 +803,7 @@ validator.arrayUnique(array); // Checks if all array's values are unique. Compar
 | `@MaxDate(date: Date)`                          | Checks if the value is a date that's before the specified date.                                                                  |                                                                                                                                                  |
 | **String-type validation decorators**                                                                                                                                              |
 | `@IsBooleanString()`                            | Checks if a string is a boolean (e.g. is "true" or "false").                                                                     |
-| `@IsDateString()`                               | Checks if a string is a date.                                                                                                    |
+| `@IsDateString()`                               | Checks if a string is a complete representation of a date (e.g. "2017-06-07T14:34:08.700Z", "2017-06-07T14:34:08.700 or "2017-06-07T14:34:08+04:00").                                                                                                    |
 | `@IsNumberString()`                             | Checks if a string is a number.                                                                                                  |
 | **String validation decorators**                                                                                                                                                   |
 | `@Contains(seed: string)`                       | Checks if the string contains the seed.                                                                                          |
@@ -717,8 +822,8 @@ validator.arrayUnique(array); // Checks if all array's values are unique. Compar
 | `@IsVariableWidth()`                            | Checks if the string contains a mixture of full and half-width chars.                                                            |
 | `@IsHexColor()`                                 | Checks if the string is a hexadecimal color.                                                                                     |
 | `@IsHexadecimal()`                              | Checks if the string is a hexadecimal number.                                                                                    |
-| `@IsIP(version?: "4"|"6")`                      | Checks if the string is an IP (version 4 or 6).                                                                                  |
-| `@IsISBN(version?: "10"|"13")`                  | Checks if the string is an ISBN (version 10 or 13).                                                                              |
+| `@IsIP(version?: "4"\|"6")`                     | Checks if the string is an IP (version 4 or 6).                                                                                  |
+| `@IsISBN(version?: "10"\|"13")`                 | Checks if the string is an ISBN (version 10 or 13).                                                                              |
 | `@IsISIN()`                                     | Checks if the string is an ISIN (stock/security identifier).                                                                     |
 | `@IsISO8601()`                                  | Checks if the string is a valid ISO 8601 date.                                                                                   |
 | `@IsJSON()`                                     | Checks if the string is valid JSON.                                                                                              |
@@ -726,23 +831,27 @@ validator.arrayUnique(array); // Checks if all array's values are unique. Compar
 | `@IsMobilePhone(locale: string)`                | Checks if the string is a mobile phone number.                                                                                   |
 | `@IsMongoId()`                                  | Checks if the string is a valid hex-encoded representation of a MongoDB ObjectId.                                                |
 | `@IsMultibyte()`                                | Checks if the string contains one or more multibyte chars.                                                                       |
-| `@IsNumericString()`                            | Checks if the string is numeric.                                                                                                 |
+| `@IsNumberString()`                             | Checks if the string is numeric.                                                                                                 |
 | `@IsSurrogatePair()`                            | Checks if the string contains any surrogate pairs chars.                                                                         |
 | `@IsUrl(options?: IsURLOptions)`                | Checks if the string is an url.                                                                                                  |
-| `@IsUUID(version?: "3"|"4"|"5")`                | Checks if the string is a UUID (version 3, 4 or 5).                                                                              |
+| `@IsUUID(version?: "3"\|"4"\|"5")`              | Checks if the string is a UUID (version 3, 4 or 5).                                                                              |
 | `@IsUppercase()`                                | Checks if the string is uppercase.                                                                                               |
 | `@Length(min: number, max?: number)`            | Checks if the string's length falls in a range.                                                                                  |
 | `@MinLength(min: number)`                       | Checks if the string's length is not less than given number.                                                                     |
 | `@MaxLength(max: number)`                       | Checks if the string's length is not more than given number.                                                                     |
 | `@Matches(pattern: RegExp, modifiers?: string)` | Checks if string matches the pattern. Either matches('foo', /foo/i) or matches('foo', 'foo', 'i').
-| `@IsMilitaryTime()`                             | Checks if the string is a valid representation of military time in the format HH:MM.
+| `@IsMilitaryTime()`                             | Checks if the string is a valid representation of military time in the format HH:MM.                                         |
 | **Array validation decorators**                                                                                                                                                    |
-| `@ArrayContains(values: any[])`                 | Checks if array contains all values from the given array of values.                                                              |
+| `@ArrayContains(values: any[])`                 | Checks if array contains all values from the given array of values.                                                           |
 | `@ArrayNotContains(values: any[])`              | Checks if array does not contain any of the given values.                                                                        |
 | `@ArrayNotEmpty()`                              | Checks if given array is not empty.                                                                                              |
 | `@ArrayMinSize(min: number)`                    | Checks if array's length is as minimal this number.                                                                              |
 | `@ArrayMaxSize(max: number)`                    | Checks if array's length is as maximal this number.                                                                              |
-| `@ArrayUnique()`                                | Checks if all array's values are unique. Comparison for objects is reference-based.                                              |
+| `@ArrayUnique()`                                | Checks if all array's values are unique. Comparison for objects is reference-based.                                       |
+| **Object validation decorators**                                                                                                                                                   |
+| `@IsInstance(value: any)`                       | Checks if the property is an instance of the passed value.                                                                       |
+ **Other decorators**                                                                                                                                                   |
+| `@Allow()`                       | Prevent stripping off the property when no other constraint is specified for it.                                                                       |
 
 ## Defining validation schema without decorators
 
@@ -833,7 +942,8 @@ There are several extensions that simplify class-validator integration with othe
 
 ## Release notes
 
-See information about breaking changes and release notes [here](https://github.com/pleerock/class-validator/tree/master/doc/release-notes.md).
+See information about breaking changes and release notes [here][3].
 
 [1]: https://github.com/chriso/validator.js
 [2]: https://github.com/pleerock/typedi
+[3]: CHANGELOG.md

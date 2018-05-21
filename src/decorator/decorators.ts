@@ -1,10 +1,10 @@
 import {ValidationTypes} from "../validation/ValidationTypes";
-import {IsEmailOptions, IsFQDNOptions, IsURLOptions, IsCurrencyOptions} from "../validation/ValidationTypeOptions";
+import {IsEmailOptions, IsFQDNOptions, IsURLOptions, IsCurrencyOptions, IsNumberOptions} from "../validation/ValidationTypeOptions";
 import {ValidationOptions} from "./ValidationOptions";
 import {ValidationMetadata} from "../metadata/ValidationMetadata";
 import {ValidationMetadataArgs} from "../metadata/ValidationMetadataArgs";
 import {ConstraintMetadata} from "../metadata/ConstraintMetadata";
-import {getFromContainer} from "../index";
+import {getFromContainer} from "../container";
 import {MetadataStorage} from "../metadata/MetadataStorage";
 
 // -------------------------------------------------------------------------
@@ -26,10 +26,10 @@ export function ValidatorConstraint(options?: { name?: string, async?: boolean }
         const metadata = new ConstraintMetadata(target, name, isAsync);
         getFromContainer(MetadataStorage).addConstraintMetadata(metadata);
     };
-} 
+}
 
 /**
- * Performs validation based on the given custom validation class. 
+ * Performs validation based on the given custom validation class.
  * Validation class must be decorated with ValidatorConstraint decorator.
  */
 export function Validate(constraintClass: Function, validationOptions?: ValidationOptions): Function;
@@ -42,7 +42,7 @@ export function Validate(constraintClass: Function, constraintsOrValidationOptio
             propertyName: propertyName,
             constraintCls: constraintClass,
             constraints: constraintsOrValidationOptions instanceof Array ? constraintsOrValidationOptions as any[] : undefined,
-            validationOptions: !(constraintsOrValidationOptions instanceof Array) ? constraintsOrValidationOptions as any[] : maybeValidationOptions
+            validationOptions: !(constraintsOrValidationOptions instanceof Array) ? constraintsOrValidationOptions as ValidationOptions : maybeValidationOptions
         };
         getFromContainer(MetadataStorage).addValidationMetadata(new ValidationMetadata(args));
     };
@@ -62,6 +62,22 @@ export function ValidateNested(validationOptions?: ValidationOptions) {
         getFromContainer(MetadataStorage).addValidationMetadata(new ValidationMetadata(args));
     };
 }
+
+/**
+ * If object has both allowed and not allowed properties a validation error will be thrown.
+ */
+export function Allow(validationOptions?: ValidationOptions) {
+  return function (object: Object, propertyName: string) {
+    const args: ValidationMetadataArgs = {
+      type: ValidationTypes.WHITELIST,
+      target: object.constructor,
+      propertyName: propertyName,
+      validationOptions: validationOptions
+    };
+    getFromContainer(MetadataStorage).addValidationMetadata(new ValidationMetadata(args));
+  };
+}
+
 
 /**
  * Objects / object arrays marked with this decorator will also be validated.
@@ -192,6 +208,24 @@ export function IsNotIn(values: any[], validationOptions?: ValidationOptions) {
     };
 }
 
+/**
+ * Checks if value is missing and if so, ignores all validators.
+ */
+export function IsOptional(validationOptions?: ValidationOptions) {
+    return function (object: Object, propertyName: string) {
+        const args: ValidationMetadataArgs = {
+            type: ValidationTypes.CONDITIONAL_VALIDATION,
+            target: object.constructor,
+            propertyName: propertyName,
+            constraints: [(object: any, value: any) => {
+                return object[propertyName] !== null && object[propertyName] !== undefined;
+            }],
+            validationOptions: validationOptions
+        };
+        getFromContainer(MetadataStorage).addValidationMetadata(new ValidationMetadata(args));
+    };
+}
+
 // -------------------------------------------------------------------------
 // Type checkers
 // -------------------------------------------------------------------------
@@ -229,12 +263,13 @@ export function IsDate(validationOptions?: ValidationOptions) {
 /**
  * Checks if a value is a number.
  */
-export function IsNumber(validationOptions?: ValidationOptions) {
+export function IsNumber(options: IsNumberOptions = {}, validationOptions?: ValidationOptions) {
     return function (object: Object, propertyName: string) {
         const args: ValidationMetadataArgs = {
             type: ValidationTypes.IS_NUMBER,
             target: object.constructor,
             propertyName: propertyName,
+            constraints: [options],
             validationOptions: validationOptions
         };
         getFromContainer(MetadataStorage).addValidationMetadata(new ValidationMetadata(args));
@@ -263,6 +298,18 @@ export function IsString(validationOptions?: ValidationOptions) {
     return function (object: Object, propertyName: string) {
         const args: ValidationMetadataArgs = {
             type: ValidationTypes.IS_STRING,
+            target: object.constructor,
+            propertyName: propertyName,
+            validationOptions: validationOptions
+        };
+        getFromContainer(MetadataStorage).addValidationMetadata(new ValidationMetadata(args));
+    };
+}
+
+export function IsDateString(validationOptions?: ValidationOptions) {
+    return function (object: Object, propertyName: string) {
+        const args: ValidationMetadataArgs = {
+            type: ValidationTypes.IS_DATE_STRING,
             target: object.constructor,
             propertyName: propertyName,
             validationOptions: validationOptions
@@ -979,7 +1026,7 @@ export function Matches(pattern: RegExp, modifiersOrAnnotationOptions?: string|V
 }
 
 /**
- * Checks if the string correctly represents a time in the format HH:MM 
+ * Checks if the string correctly represents a time in the format HH:MM
  */
 export function IsMilitaryTime(validationOptions?: ValidationOptions) {
     return function (object: Object, propertyName: string) {
@@ -1085,6 +1132,22 @@ export function ArrayUnique(validationOptions?: ValidationOptions) {
             type: ValidationTypes.ARRAY_UNIQUE,
             target: object.constructor,
             propertyName: propertyName,
+            validationOptions: validationOptions
+        };
+        getFromContainer(MetadataStorage).addValidationMetadata(new ValidationMetadata(args));
+    };
+}
+
+/**
+ * Checks if all array's values are unique. Comparison for objects is reference-based.
+ */
+export function IsInstance(targetType: new (...args: any[]) => any, validationOptions?: ValidationOptions) {
+    return function (object: Object, propertyName: string) {
+        const args: ValidationMetadataArgs = {
+            type: ValidationTypes.IS_INSTANCE,
+            target: object.constructor,
+            propertyName: propertyName,
+            constraints: [targetType],
             validationOptions: validationOptions
         };
         getFromContainer(MetadataStorage).addValidationMetadata(new ValidationMetadata(args));

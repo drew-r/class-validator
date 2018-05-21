@@ -2,7 +2,7 @@ import {Validator} from "./Validator";
 import {ValidationError} from "./ValidationError";
 import {ValidationMetadata} from "../metadata/ValidationMetadata";
 import {MetadataStorage} from "../metadata/MetadataStorage";
-import {getFromContainer} from "../index";
+import {getFromContainer} from "../container";
 import {ValidatorOptions} from "./ValidatorOptions";
 import {ValidationTypes} from "./ValidationTypes";
 import {ConstraintMetadata} from "../metadata/ConstraintMetadata";
@@ -34,20 +34,54 @@ export class ValidationExecutor {
     constructor(private validator: Validator,
                 private validatorOptions?: ValidatorOptions) {
     }
-    
+
     // -------------------------------------------------------------------------
     // Public Methods
     // -------------------------------------------------------------------------
-    
+
     execute(object: Object, targetSchema: string, validationErrors: ValidationError[]) {
+        /**
+         * If there is no metadata registered it means possibly the dependencies are not flatterned and
+         * more than one instance is used.
+         * 
+         * TODO: This needs proper handling, forcing to use the same container or some other proper solution.
+         */
+        if (!this.metadataStorage.hasValidationMetaData) {
+            console.warn(`No metadata found. There is more than once class-validator version installed probably. You need to flatten your dependencies.`);
+        }
+
         const groups = this.validatorOptions ? this.validatorOptions.groups : undefined;
         const targetMetadatas = this.metadataStorage.getTargetValidationMetadatas(object.constructor, targetSchema, groups);
         const groupedMetadatas = this.metadataStorage.groupByPropertyName(targetMetadatas);
 
+        if (this.validatorOptions && this.validatorOptions.forbidUnknownValues && !targetMetadatas.length) {
+            const validationError = new ValidationError();
+
+            if (!this.validatorOptions ||
+                !this.validatorOptions.validationError ||
+                this.validatorOptions.validationError.target === undefined ||
+                this.validatorOptions.validationError.target === true)
+                validationError.target = object;
+
+            validationError.value = undefined;
+            validationError.property = undefined;
+            validationError.children = [];
+            validationError.constraints = { unknownValue: "an unknown value was passed to the validate function"};
+
+            validationErrors.push(validationError);
+
+            return;
+        }
+
+        if (this.validatorOptions && this.validatorOptions.whitelist)
+            this.whitelist(object, groupedMetadatas, validationErrors);
+
+        // General validation
         Object.keys(groupedMetadatas).forEach(propertyName => {
             const value = (object as any)[propertyName];
             const definedMetadatas = groupedMetadatas[propertyName].filter(metadata => metadata.type === ValidationTypes.IS_DEFINED);
-            const metadatas = groupedMetadatas[propertyName].filter(metadata => metadata.type !== ValidationTypes.IS_DEFINED);
+            const metadatas = groupedMetadatas[propertyName].filter(
+              metadata => metadata.type !== ValidationTypes.IS_DEFINED && metadata.type !== ValidationTypes.WHITELIST);
             const customValidationMetadatas = metadatas.filter(metadata => metadata.type === ValidationTypes.CUSTOM_VALIDATION);
             const nestedValidationMetadatas = metadatas.filter(metadata => metadata.type === ValidationTypes.NESTED_VALIDATION);
             const conditionalValidationMetadatas = metadatas.filter(metadata => metadata.type === ValidationTypes.CONDITIONAL_VALIDATION);
@@ -62,7 +96,7 @@ export class ValidationExecutor {
 
             // handle IS_DEFINED validation type the special way - it should work no matter skipMissingProperties is set or not
             this.defaultValidations(object, value, definedMetadatas, validationError.constraints);
-            
+
             if ((value === null || value === undefined) && this.validatorOptions && this.validatorOptions.skipMissingProperties === true) {
                 return;
             }
@@ -71,6 +105,38 @@ export class ValidationExecutor {
             this.customValidations(object, value, customValidationMetadatas, validationError.constraints);
             this.nestedValidations(value, nestedValidationMetadatas, validationError.children);
         });
+    }
+
+    whitelist(object: any,
+              groupedMetadatas: { [propertyName: string]: ValidationMetadata[] },
+              validationErrors: ValidationError[]) {
+        let notAllowedProperties: string[] = [];
+
+        Object.keys(object).forEach(propertyName => {
+            // does this property have no metadata?
+            if (!groupedMetadatas[propertyName] || groupedMetadatas[propertyName].length === 0)
+                notAllowedProperties.push(propertyName);
+        });
+
+        if (notAllowedProperties.length > 0) {
+
+            if (this.validatorOptions && this.validatorOptions.forbidNonWhitelisted) {
+
+                // throw errors
+                notAllowedProperties.forEach(property => {
+                    validationErrors.push({
+                        target: object, property, value: (object as any)[property], children: undefined,
+                        constraints: { [ValidationTypes.WHITELIST]: `property ${property} should not exist` }
+                    });
+                });
+
+            } else {
+
+                // strip non allowed properties
+                notAllowedProperties.forEach(property => delete (object as any)[property]);
+
+            }
+        }
     }
 
     stripEmptyErrors(errors: ValidationError[]) {
@@ -90,7 +156,7 @@ export class ValidationExecutor {
             return true;
         });
     }
-    
+
     // -------------------------------------------------------------------------
     // Private Methods
     // -------------------------------------------------------------------------
@@ -182,7 +248,7 @@ export class ValidationExecutor {
                 });
         });
     }
-    
+
     private nestedValidations(value: any, metadatas: ValidationMetadata[], errors: ValidationError[]) {
 
         if (value === void 0) {
@@ -205,7 +271,15 @@ export class ValidationExecutor {
                 this.execute(value, targetSchema, errors);
 
             } else {
-                throw new Error("Only objects and arrays are supported to nested validation");
+                const error = new ValidationError();
+                error.value = value;
+                error.property = metadata.propertyName;
+                error.target = metadata.target;
+                const [type, message] = this.createValidationError(metadata.target, value, metadata);
+                error.constraints = {
+                    [type]: message
+                };
+                errors.push(error);
             }
         });
     }
@@ -214,7 +288,7 @@ export class ValidationExecutor {
                                   value: any,
                                   metadata: ValidationMetadata,
                                   customValidatorMetadata?: ConstraintMetadata): [string, string] {
-        
+
         const targetName = object.constructor ? (object.constructor as any).name : undefined;
         const type = customValidatorMetadata && customValidatorMetadata.name ? customValidatorMetadata.name : metadata.type;
         const validationArguments: ValidationArguments = {
@@ -226,7 +300,7 @@ export class ValidationExecutor {
         };
 
         let message = metadata.message;
-        if (!metadata.message && 
+        if (!metadata.message &&
             (!this.validatorOptions || (this.validatorOptions && !this.validatorOptions.dismissDefaultMessages))) {
             if (customValidatorMetadata && customValidatorMetadata.instance.defaultMessage instanceof Function) {
                 message = customValidatorMetadata.instance.defaultMessage(validationArguments);
@@ -239,5 +313,5 @@ export class ValidationExecutor {
         const messageString = ValidationUtils.replaceMessageSpecialTokens(message, validationArguments);
         return [type, messageString];
     }
-    
+
 }

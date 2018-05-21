@@ -1,7 +1,7 @@
 import {ValidationMetadata} from "../metadata/ValidationMetadata";
 import {ValidationTypes} from "./ValidationTypes";
 import {ValidationError} from "./ValidationError";
-import {IsEmailOptions, IsFQDNOptions, IsURLOptions, IsCurrencyOptions} from "./ValidationTypeOptions";
+import {IsEmailOptions, IsFQDNOptions, IsURLOptions, IsCurrencyOptions, IsNumberOptions} from "./ValidationTypeOptions";
 import {ValidatorOptions} from "./ValidatorOptions";
 import {ValidationExecutor} from "./ValidationExecutor";
 import {ValidationOptions} from "../decorator/ValidationOptions";
@@ -74,7 +74,7 @@ export class Validator {
         if (errors.length)
             return Promise.reject(errors);
     }
-    
+
     /**
      * Performs validation of the given object based on decorators used in given object class.
      * NOTE: This method completely ignores all async validations.
@@ -129,10 +129,12 @@ export class Validator {
                 return this.isDate(value);
             case ValidationTypes.IS_STRING:
                 return this.isString(value);
+            case ValidationTypes.IS_DATE_STRING:
+                return this.isDateString(value);
             case ValidationTypes.IS_ARRAY:
                 return this.isArray(value);
             case ValidationTypes.IS_NUMBER:
-                return this.isNumber(value);
+                return this.isNumber(value, metadata.constraints[0]);
             case ValidationTypes.IS_INT:
                 return this.isInt(value);
             case ValidationTypes.IS_ENUM:
@@ -245,6 +247,9 @@ export class Validator {
                 return this.arrayMaxSize(value, metadata.constraints[0]);
             case ValidationTypes.ARRAY_UNIQUE:
                 return this.arrayUnique(value);
+
+            case ValidationTypes.IS_INSTANCE:
+                return this.isInstance(value, metadata.constraints[0]);
         }
         return true;
     }
@@ -317,7 +322,7 @@ export class Validator {
      * Checks if a given value is a real date.
      */
     isDate(value: any): boolean {
-        return value instanceof Date;
+        return value instanceof Date && !isNaN(value.getTime());
     }
 
     /**
@@ -328,38 +333,49 @@ export class Validator {
     }
 
     /**
+     * Checks if a given value is a ISOString date.
+     */
+    isDateString(value: any): boolean {
+        const regex = /\d{4}-[01]\d-[0-3]\dT[0-2]\d:[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|\+[0-2]\d(?:\:[0-5]\d)?)?/g;
+        return this.isString(value) && regex.test(value);
+    }
+
+    /**
      * Checks if a given value is an array
      */
     isArray(value: any): boolean {
         return value instanceof Array;
     }
 
-     /**
+    /**
      * Checks if a given value is an enum
      */
     isEnum(value: any, entity: any): boolean {
         const enumValues = Object.keys(entity)
-            .map(k => entity[k])
-            .filter(v => typeof v === "number") as number[];
+            .map(k => entity[k]);
         return enumValues.indexOf(value) >= 0;
     }
 
     /**
-     * Checks if a given value is a real number.
+     * Checks if a given value is a number.
      */
-    isNumber(value: any): boolean {
-        return value instanceof Number || typeof value === "number";
+    isNumber(value: any, options: IsNumberOptions = {}): boolean {
+        if (value === Infinity || value === -Infinity) {
+            return options.allowInfinity;
+        }
+
+        if (Number.isNaN(value)) {
+            return options.allowNaN;
+        }
+
+        return Number.isFinite(value);
     }
 
     /**
      * Checks if value is an integer.
      */
     isInt(val: number): boolean {
-        if (!this.isNumber(val))
-            return false;
-
-        const numberString = String(val); // fix it
-        return this.validatorJs.isInt(numberString);
+        return Number.isInteger(val);
     }
 
     // -------------------------------------------------------------------------
@@ -370,9 +386,9 @@ export class Validator {
      * Checks if value is a number that's divisible by another.
      */
     isDivisibleBy(value: number, num: number): boolean {
-        return  typeof value === "number" && 
-                typeof num === "number" && 
-                this.validatorJs.isDivisibleBy(String(value), num);
+        return  typeof value === "number" &&
+            typeof num === "number" &&
+            this.validatorJs.isDivisibleBy(String(value), num);
     }
 
     /**
@@ -717,7 +733,7 @@ export class Validator {
     isMilitaryTime(value: string): boolean {
         return this.matches(value, /^([01]\d|2[0-3]):?([0-5]\d)$/);
     }
-    
+
     // -------------------------------------------------------------------------
     // Validation Methods: array checkers
     // -------------------------------------------------------------------------
@@ -729,7 +745,7 @@ export class Validator {
     arrayContains(array: any[], values: any[]) {
         if (!(array instanceof Array))
             return false;
-        
+
         return !array || values.every(value => array.indexOf(value) !== -1);
     }
 
@@ -740,7 +756,7 @@ export class Validator {
     arrayNotContains(array: any[], values: any[]) {
         if (!(array instanceof Array))
             return false;
-        
+
         return !array || values.every(value => array.indexOf(value) === -1);
     }
 
@@ -751,7 +767,7 @@ export class Validator {
     arrayNotEmpty(array: any[]) {
         if (!(array instanceof Array))
             return false;
-        
+
         return array instanceof Array && array.length > 0;
     }
 
@@ -762,7 +778,7 @@ export class Validator {
     arrayMinSize(array: any[], min: number) {
         if (!(array instanceof Array))
             return false;
-        
+
         return array instanceof Array && array.length >= min;
     }
 
@@ -773,7 +789,7 @@ export class Validator {
     arrayMaxSize(array: any[], max: number) {
         if (!(array instanceof Array))
             return false;
-        
+
         return array instanceof Array && array.length <= max;
     }
 
@@ -787,6 +803,15 @@ export class Validator {
 
         const uniqueItems = array.filter((a, b, c) => c.indexOf(a) === b);
         return array.length === uniqueItems.length;
+    }
+
+    /**
+     * Checks if the value is an instance of the specified object.
+     */
+    isInstance(object: any, targetTypeConstructor: new (...args: any[]) => any) {
+        return targetTypeConstructor
+            && typeof targetTypeConstructor === "function"
+            && object instanceof targetTypeConstructor;
     }
 
 }

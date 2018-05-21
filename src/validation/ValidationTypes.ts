@@ -4,11 +4,12 @@ import {ValidationArguments} from "./ValidationArguments";
  * Validation types.
  */
 export class ValidationTypes {
-    
+
     /* system */
     static CUSTOM_VALIDATION = "customValidation";
     static NESTED_VALIDATION = "nestedValidation";
     static CONDITIONAL_VALIDATION = "conditionalValidation";
+    static WHITELIST = "whitelistValidation";
 
     /* common checkers */
     static IS_DEFINED = "isDefined";
@@ -24,6 +25,7 @@ export class ValidationTypes {
     static IS_DATE = "isDate";
     static IS_NUMBER = "isNumber";
     static IS_STRING = "isString";
+    static IS_DATE_STRING = "isDateString";
     static IS_ARRAY = "isArray";
     static IS_INT = "isInt";
     static IS_ENUM = "isEnum";
@@ -87,13 +89,16 @@ export class ValidationTypes {
     static ARRAY_MAX_SIZE = "arrayMaxSize";
     static ARRAY_UNIQUE = "arrayUnique";
 
+    /* object chekers */
+    static IS_INSTANCE = "isInstance";
+
     /**
      * Checks if validation type is valid.
      */
     static isValid(type: string) {
         return  type !== "isValid" &&
-                type !== "getMessage" &&
-                Object.keys(this).map(key => (this as any)[key]).indexOf(type) !== -1;
+            type !== "getMessage" &&
+            Object.keys(this).map(key => (this as any)[key]).indexOf(type) !== -1;
     }
 
     /**
@@ -103,6 +108,9 @@ export class ValidationTypes {
         const eachPrefix = isEach ? "each value in " : "";
         switch (type) {
 
+            /* system chceck */
+            case this.NESTED_VALIDATION:
+                return eachPrefix + "nested property $property must be either object or array";
             /* common checkers */
             case this.IS_DEFINED:
                 return eachPrefix + "$property should not be null or undefined";
@@ -130,6 +138,8 @@ export class ValidationTypes {
                 return eachPrefix + "$property must be an integer number";
             case this.IS_STRING:
                 return eachPrefix + "$property must be a string";
+            case this.IS_DATE_STRING:
+                return eachPrefix + "$property must be a ISOString";
             case this.IS_ARRAY:
                 return eachPrefix + "$property must be an array";
             case this.IS_ENUM:
@@ -223,16 +233,16 @@ export class ValidationTypes {
                     const isMinLength = args.constraints[0] !== null && args.constraints[0] !== undefined;
                     const isMaxLength = args.constraints[1] !== null && args.constraints[1] !== undefined;
                     if (isMinLength && (!args.value || args.value.length < args.constraints[0])) {
-                        return eachPrefix + "$property must be longer than $constraint1 characters";
+                        return eachPrefix + "$property must be longer than or equal to $constraint1 characters";
                     } else if (isMaxLength && (args.value.length > args.constraints[1])) {
-                        return eachPrefix + "$property must be shorter than $constraint2 characters";
+                        return eachPrefix + "$property must be shorter than or equal to $constraint2 characters";
                     }
-                    return eachPrefix + "$property must be longer than $constraint1 and shorter than $constraint2 characters";
+                    return eachPrefix + "$property must be longer than or equal to $constraint1 and shorter than or equal to $constraint2 characters";
                 };
             case this.MIN_LENGTH:
-                return eachPrefix + "$property must be longer than $constraint1 characters";
+                return eachPrefix + "$property must be longer than or equal to $constraint1 characters";
             case this.MAX_LENGTH:
-                return eachPrefix + "$property must be shorter than $constraint1 characters";
+                return eachPrefix + "$property must be shorter than or equal to $constraint1 characters";
             case this.MATCHES:
                 return eachPrefix + "$property must match $constraint1 regular expression";
 
@@ -249,9 +259,18 @@ export class ValidationTypes {
                 return eachPrefix + "$property must contain not more than $constraint1 elements";
             case this.ARRAY_UNIQUE:
                 return eachPrefix + "All $property's elements must be unique";
+
+            case this.IS_INSTANCE:
+                return (args: ValidationArguments) => {
+                    if (args.constraints[0]) {
+                        return eachPrefix + `$property must be an instance of ${args.constraints[0].name}`;
+                    } else {
+                        return eachPrefix + `${this.IS_INSTANCE} decorator expects and object as value, but got falsy value.`;
+                    }
+                };
         }
-        
+
         return "";
     }
-    
+
 }
